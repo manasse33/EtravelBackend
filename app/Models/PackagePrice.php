@@ -1,24 +1,7 @@
 <?php
-
 namespace App\Models;
-
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-
-class PackagePrice extends Model
-{
-    use HasFactory;
-
-    protected $fillable = [
-        'package_id',
-        'min_people',
-        'max_people',
-        'price',
-        'currency',
-    ];
-
-    public function package()
-    {
-        return $this->belongsTo(Package::class);
-    }
+class PackagePrice extends Model {
+    protected $fillable = ['priceable_type','priceable_id','country_id','departure_country_id','arrival_country_id','min_people','max_people','price','currency','notes'];
+    public function priceable(){ return $this->morphTo(); }
 }
