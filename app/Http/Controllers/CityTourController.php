@@ -3,7 +3,7 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use App\Models\City as CityTour;
+use App\Models\CityTour;
 use App\Models\Country;
 
 class CityTourController extends Controller
