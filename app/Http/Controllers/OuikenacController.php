@@ -4,80 +4,77 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\OuikenacPackage;
-use App\Models\Country;
-use App\Models\City;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Validation\ValidationException;
 use Exception;
+use Illuminate\Support\Facades\DB;
 
 class OuikenacController extends Controller
 {
-    /**
-     * Afficher tous les packages Ouikenac
-     */
     public function index()
     {
         try {
-            $OuikenacPackages = OuikenacPackage::with(['country_depart', 'country_arrivee', 'city_depart', 'city_arrivee'])->get();
-            return response()->json($OuikenacPackages, 200);
+            $packages = OuikenacPackage::with(['departureCountry', 'arrivalCountry','prices'])->get();
+            return response()->json($packages, 200);
         } catch (Exception $e) {
             return response()->json(['error' => 'Erreur lors du chargement des packages', 'details' => $e->getMessage()], 500);
         }
     }
 
-    /**
-     * Créer un nouveau package Ouikenac
-     */
     public function store(Request $request)
     {
         try {
             $validated = $request->validate([
-                'nom' => 'required|string|max:255',
-                'image' => 'nullable|string',
-                'services_inclus' => 'nullable|array',
-                'repas' => 'boolean',
-                'transport' => 'boolean',
-                'hebergement' => 'boolean',
-                'country_depart_id' => 'required|exists:countries,id',
-                'country_arrivee_id' => 'required|exists:countries,id',
-                'city_depart_id' => 'required|exists:cities,id',
-                'city_arrivee_id' => 'required|exists:cities,id',
-                'prix' => 'required|numeric|min:0',
-                'places_min' => 'required|integer|min:1',
-                'places_max' => 'required|integer|min:1',
-                'programme' => 'nullable|string',
+                'title' => 'required|string|max:255',
                 'description' => 'nullable|string',
+                'image' => 'nullable|file',
+                'departure_country_id' => 'required|exists:countries,id',
+                'arrival_country_id' => 'nullable|exists:countries,id',
+                'departure_city_id' => 'required|exists:cities,id',
+                'arrival_city_id' => 'nullable|exists:cities,id',
+                'min_people' => 'required|integer|min:1',
+                'max_people' => 'required|integer|min:1',
+                'active' => 'boolean',
+                'price' => 'required|numeric|min:0',
             ]);
 
-            $OuikenacPackage = OuikenacPackage::create($validated);
+            if ($request->hasFile('image')) {
+                $path = $request->file('image')->store('packages', 'public');
+                $validated['image'] = $path;
+            }
+
+            DB::beginTransaction();
+
+            $package = OuikenacPackage::create($validated);
+
+            $package->prices()->create([
+                'price' => $validated['price'],
+                'currency' => 'CFA',
+                'min_people' => $validated['min_people'],
+                'max_people' => $validated['max_people'],
+            ]);
+
+            DB::commit();
 
             return response()->json([
-                'message' => 'Ouikenac créé avec succès',
-                'data' => $OuikenacPackage
+                'message' => 'Package créé avec succès',
+                'data' => $package->load('prices')
             ], 201);
 
         } catch (ValidationException $e) {
-            return response()->json([
-                'error' => 'Erreur de validation',
-                'details' => $e->errors()
-            ], 422);
+            return response()->json(['error' => 'Erreur de validation', 'details' => $e->errors()], 422);
 
         } catch (Exception $e) {
-            return response()->json([
-                'error' => 'Erreur lors de la création du package',
-                'details' => $e->getMessage()
-            ], 500);
+            DB::rollBack();
+            return response()->json(['error' => 'Erreur lors de la création du package', 'details' => $e->getMessage()], 500);
         }
     }
 
-    /**
-     * Afficher un package spécifique
-     */
     public function show($id)
     {
         try {
-            $OuikenacPackage = OuikenacPackage::with(['country_depart', 'country_arrivee', 'city_depart', 'city_arrivee'])->findOrFail($id);
-            return response()->json($OuikenacPackage, 200);
+            $package = OuikenacPackage::with(['departureCountry', 'arrivalCountry', 'prices'])->findOrFail($id);
+            return response()->json($package, 200);
 
         } catch (ModelNotFoundException $e) {
             return response()->json(['error' => 'Package introuvable'], 404);
@@ -87,38 +84,49 @@ class OuikenacController extends Controller
         }
     }
 
-    /**
-     * Mettre à jour un package
-     */
     public function update(Request $request, $id)
     {
         try {
-            $OuikenacPackage = OuikenacPackage::findOrFail($id);
+            $package = OuikenacPackage::findOrFail($id);
 
             $validated = $request->validate([
-                'nom' => 'sometimes|string|max:255',
-                'image' => 'nullable|string',
-                'services_inclus' => 'nullable|array',
-                'repas' => 'boolean',
-                'transport' => 'boolean',
-                'hebergement' => 'boolean',
-                'country_depart_id' => 'sometimes|exists:countries,id',
-                'country_arrivee_id' => 'sometimes|exists:countries,id',
-                'city_depart_id' => 'sometimes|exists:cities,id',
-                'city_arrivee_id' => 'sometimes|exists:cities,id',
-                'prix' => 'sometimes|numeric|min:0',
-                'places_min' => 'sometimes|integer|min:1',
-                'places_max' => 'sometimes|integer|min:1',
-                'programme' => 'nullable|string',
+                'title' => 'sometimes|string|max:255',
                 'description' => 'nullable|string',
+                'image' => 'nullable|file',
+                'departure_country_id' => 'sometimes|exists:countries,id',
+                'arrival_country_id' => 'sometimes|exists:countries,id',
+                'departure_city_id' => 'sometimes|exists:cities,id',
+                'arrival_city_id' => 'sometimes|exists:cities,id',
+                'min_people' => 'sometimes|integer|min:1',
+                'max_people' => 'sometimes|integer|min:1',
+                'active' => 'boolean',
+                'price' => 'sometimes|numeric|min:0',
             ]);
 
-            $OuikenacPackage->update($validated);
+            if ($request->hasFile('image')) {
+                $path = $request->file('image')->store('packages', 'public');
+                $validated['image'] = $path;
+            }
 
-            return response()->json([
-                'message' => 'Ouikenac mis à jour avec succès',
-                'data' => $OuikenacPackage
-            ], 200);
+            DB::beginTransaction();
+
+            $package->update($validated);
+
+            if ($request->has('price')) {
+                $package->prices()->updateOrCreate(
+                    ['package_id' => $package->id],
+                    [
+                        'price' => $validated['price'],
+                        'currency' => 'CFA',
+                        'min_people' => $validated['min_people'] ?? $package->min_people,
+                        'max_people' => $validated['max_people'] ?? $package->max_people,
+                    ]
+                );
+            }
+
+            DB::commit();
+
+            return response()->json(['message' => 'Package mis à jour avec succès', 'data' => $package->load('prices')], 200);
 
         } catch (ValidationException $e) {
             return response()->json(['error' => 'Erreur de validation', 'details' => $e->errors()], 422);
@@ -127,20 +135,17 @@ class OuikenacController extends Controller
             return response()->json(['error' => 'Package introuvable'], 404);
 
         } catch (Exception $e) {
+            DB::rollBack();
             return response()->json(['error' => 'Erreur lors de la mise à jour du package', 'details' => $e->getMessage()], 500);
         }
     }
 
-    /**
-     * Supprimer un package
-     */
     public function destroy($id)
     {
         try {
-            $OuikenacPackage = OuikenacPackage::findOrFail($id);
-            $OuikenacPackage->delete();
-
-            return response()->json(['message' => 'Ouikenac supprimé avec succès'], 200);
+            $package = OuikenacPackage::findOrFail($id);
+            $package->delete();
+            return response()->json(['message' => 'Package supprimé avec succès'], 200);
 
         } catch (ModelNotFoundException $e) {
             return response()->json(['error' => 'Package introuvable'], 404);

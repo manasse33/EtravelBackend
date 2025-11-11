@@ -13,7 +13,7 @@ return new class extends Migration {
             $table->string('phone',50)->nullable();
             $table->date('date_from')->nullable();
             $table->date('date_to')->nullable();
-            $table->integer('travelers')->default(1);
+            $table->integer('travelers')->nullable();
             $table->decimal('total_price', 13,2)->nullable();
             $table->string('currency',10)->nullable();
             $table->text('message')->nullable();
