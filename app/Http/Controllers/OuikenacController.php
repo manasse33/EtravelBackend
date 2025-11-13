@@ -17,7 +17,7 @@ class OuikenacController extends Controller
     public function index(Request $request)
     {
         try {
-            $packages = OuikenacPackage::with(['departureCountry', 'arrivalCountry', 'prices', 'inclusions', 'additionalCities'])->get();
+            $packages = OuikenacPackage::with(['prices', 'inclusions', 'additionalCities'])->get();
             return response()->json($packages, 200);
         } catch (Exception $e) {
             return response()->json(['error' => 'Erreur lors du chargement des packages', 'details' => $e->getMessage()], 500);
@@ -42,44 +42,54 @@ class OuikenacController extends Controller
             // === GRIDS (prices) ===
             // on attend un tableau 'grids' (array). Les images peuvent être envoyées en tant que fichiers avec
             // les champs "grids.0.image", "grids.1.image" etc (multipart/form-data).
-            if ($request->has('grids')) {
-                $grids = $request->input('grids');
-                foreach ($grids as $index => $grid) {
-                    // validation par grille
-                    $validator = validator($grid, [
-                        'country_id' => 'nullable|exists:countries,id',
-                        'departure_country_id' => 'required|exists:countries,id',
-                        'arrival_country_id' => 'nullable|exists:countries,id',
-                        'departure_city_id' => 'required|exists:cities,id',
-                        'arrival_city_id' => 'nullable|exists:cities,id',
-                        'min_people' => 'required|integer|min:1',
-                        'max_people' => 'nullable|integer|min:1',
-                        'price' => 'required|numeric|min:0',
-                        'currency' => 'required|in:CFA,USD,EUR',
-                        'programme'=>'nullable|string',
-                    ]);
-                    $validatedGrid = $validator->validate();
+           if ($request->has('grids')) {
+    $grids = $request->input('grids');
 
-                    // gérer l'image si fournie en fichier: input name grids.0.image
-                    $imageField = "grids.$index.image";
-                    if ($request->hasFile($imageField)) {
-                        $path = $request->file($imageField)->store('packages', 'public');
-                        $validatedGrid['image'] = $path;
-                    }
+    // Si c'est une string JSON, décoder en tableau
+    if (is_string($grids)) {
+        $grids = json_decode($grids, true);
+        if (!is_array($grids)) {
+            throw new \Exception("Les grids doivent être un tableau valide.");
+        }
+    }
 
-                    // créer le price (morph)
-                    $package->prices()->create([
-                        'country_id' => $validatedGrid['country_id'] ?? null,
-                        'departure_country_id' => $validatedGrid['departure_country_id'],
-                        'arrival_country_id' => $validatedGrid['arrival_country_id'] ?? null,
-                        'min_people' => $validatedGrid['min_people'],
-                        'max_people' => $validatedGrid['max_people'] ?? null,
-                        'price' => $validatedGrid['price'],
-                        'currency' => $validatedGrid['currency'],
-                        'programme' => $validatedGrid['programme'],
-                    ]);
-                }
-            }
+    foreach ($grids as $index => $grid) {
+        // validation par grille
+        $validator = validator($grid, [
+            'country_id' => 'nullable|exists:countries,id',
+            'departure_country_id' => 'required|exists:countries,id',
+            'arrival_country_id' => 'nullable|exists:countries,id',
+            'departure_city_id' => 'required|exists:cities,id',
+            'arrival_city_id' => 'nullable|exists:cities,id',
+            'min_people' => 'required|integer|min:1',
+            'max_people' => 'nullable|integer|min:1',
+            'price' => 'required|numeric|min:0',
+            'currency' => 'required|in:CFA,USD,EUR',
+            'programme' => 'nullable|string',
+        ]);
+        $validatedGrid = $validator->validate();
+
+        // gérer l'image si fournie en fichier: input name grids.0.image
+        $imageField = "grids.$index.image";
+        if ($request->hasFile($imageField)) {
+            $path = $request->file($imageField)->store('packages', 'public');
+            $validatedGrid['image'] = $path;
+        }
+
+        // créer le price (morph)
+        $package->prices()->create([
+            'country_id' => $validatedGrid['country_id'] ?? null,
+            'departure_country_id' => $validatedGrid['departure_country_id'],
+            'arrival_country_id' => $validatedGrid['arrival_country_id'] ?? null,
+            'min_people' => $validatedGrid['min_people'],
+            'max_people' => $validatedGrid['max_people'] ?? null,
+            'price' => $validatedGrid['price'],
+            'currency' => $validatedGrid['currency'],
+            'programme' => $validatedGrid['programme'] ?? null,
+        ]);
+    }
+}
+
 
             // === INCLUSIONS ===
             // on attend un tableau d'objets {name, description?} ou simplement une liste de strings

@@ -10,7 +10,7 @@ use App\Http\Controllers\CityTourController;
 use App\Http\Controllers\ReservationController;
 use App\Http\Controllers\AdminAuthController;
 
-Route::get('/countries', [ConfigController::class,'countries']);
+Route::get('/countries', [ConfigController::class,'indexCountries']);
 Route::post('/countries', [ConfigController::class,'storeCountry']);
 Route::post('/cities', [ConfigController::class,'storeCity']);
 

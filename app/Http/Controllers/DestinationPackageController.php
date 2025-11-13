@@ -18,7 +18,7 @@ class DestinationPackageController extends Controller
     public function index()
     {
         try {
-            $packages = DestinationPackage::with(['departureCountry', 'arrivalCountry', 'prices', 'services'])->get();
+            $packages = DestinationPackage::with(['departureCountry',  'prices'])->get();
             return response()->json($packages, 200);
         } catch (Exception $e) {
             return response()->json([
