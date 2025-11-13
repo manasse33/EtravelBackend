@@ -93,44 +93,56 @@ class OuikenacController extends Controller
 
             // === INCLUSIONS ===
             // on attend un tableau d'objets {name, description?} ou simplement une liste de strings
-            if ($request->has('inclusions')) {
-                $inclusions = $request->input('inclusions');
+          // === INCLUSIONS ===
+// on attend un tableau d'objets {name, description?} ou simplement une liste de strings
+if ($request->has('inclusions')) {
+    $inclusions = $request->input('inclusions');
 
-                // si c'est une simple liste de strings => transform
-                if ($this->isListOfStrings($inclusions)) {
-                    foreach ($inclusions as $name) {
-                        $package->inclusions()->create(['name' => $name]);
-                    }
-                } else {
-                    foreach ($inclusions as $inc) {
-                        $validatedInc = validator($inc, [
-                            'name' => 'required|string|max:150',
-                            'description' => 'nullable|string',
-                        ])->validate();
+    // NOUVEAU : Décodez le JSON si c'est une chaîne (fréquent avec multipart/form-data)
+    if (is_string($inclusions)) {
+        $inclusions = json_decode($inclusions, true);
+        if (!is_array($inclusions)) {
+            // Logique de sécurité pour éviter l'erreur si le JSON est invalide
+            throw new \Exception("Les inclusions doivent être un tableau valide.");
+        }
+    }
 
-                        $package->inclusions()->create($validatedInc);
-                    }
-                }
-            }
+    // si c'est une simple liste de strings => transform
+    if ($this->isListOfStrings($inclusions)) {
+        foreach ($inclusions as $name) {
+            $package->inclusions()->create(['name' => $name]);
+        }
+    } else {
+        foreach ($inclusions as $inc) {
+            $validatedInc = validator($inc, [
+                'name' => 'required|string|max:150',
+                'description' => 'nullable|string',
+            ])->validate();
+
+            $package->inclusions()->create($validatedInc);
+        }
+    }
+}
 
             // === VILLES ADDITIONNELLES ===
             // on attend un tableau 'additional_cities' = [{city_id: X, type: 'escale'}] or [cityId, cityId]
-            if ($request->has('additional_cities')) {
-                $cities = $request->input('additional_cities');
-                foreach ($cities as $c) {
-                    if (is_array($c)) {
-                        $cityId = $c['city_id'] ?? null;
-                        $type = $c['type'] ?? null;
-                    } else {
-                        $cityId = $c;
-                        $type = null;
-                    }
-                    if ($cityId) {
-                        // attach via pivot
-                        $package->additionalCities()->attach($cityId, ['type' => $type]);
-                    }
-                }
-            }
+           // === VILLES ADDITIONNELLES ===
+// on attend un tableau 'additional_cities' = [{city_id: X, type: 'escale'}] or [cityId, cityId]
+if ($request->has('additional_cities')) {
+    $cities = $request->input('additional_cities');
+    
+    // NOUVEAU : Décodez le JSON si c'est une chaîne
+    if (is_string($cities)) {
+        $cities = json_decode($cities, true);
+        if (!is_array($cities)) {
+            throw new \Exception("Les villes additionnelles doivent être un tableau valide.");
+        }
+    }
+    
+    foreach ($cities as $c) {
+        // ... (reste du code)
+    }
+}
 
             DB::commit();
 
