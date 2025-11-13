@@ -5,18 +5,16 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration {
     public function up(): void {
-        Schema::create('ouikenac_packages', function (Blueprint $table) {
+        Schema::create('package_inclusions', function (Blueprint $table) {
             $table->id();
-            $table->string('title', 150);
+            $table->foreignId('package_id')->constrained('ouikenac_packages')->cascadeOnDelete();
+            $table->string('name', 150); // nom de l’inclusion
             $table->text('description')->nullable();
-             $table->text('programme')->nullable();
-            $table->string('image')->nullable();
-            $table->boolean('active')->default(true);
             $table->timestamps();
         });
     }
 
     public function down(): void {
-        Schema::dropIfExists('ouikenac_packages');
+        Schema::dropIfExists('package_inclusions');
     }
 };

@@ -14,8 +14,7 @@ return new class extends Migration {
             $table->integer('min_people')->default(1);
             $table->integer('max_people')->nullable();
             $table->decimal('price', 13, 2);
-            $table->string('currency', 10)->default('CFA');
-            $table->text('notes')->nullable(); // price-specific description
+            $table->enum('currency', ['CFA', 'USD', 'EUR'])->default('CFA');
             $table->timestamps();
         });
     }

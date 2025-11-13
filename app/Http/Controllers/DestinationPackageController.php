@@ -31,55 +31,52 @@ class DestinationPackageController extends Controller
     /**
      * Crée un package
      */
-    public function store(Request $r)
-    {
-        try {
-            $data = $r->validate([
-                'title' => 'required|string|max:150',
-                'description' => 'nullable|string',
-                'image' => 'nullable|image',
-                'departure_country_id' => 'required|exists:countries,id',
-                'arrival_country_id' => 'nullable|exists:countries,id',
-                'services' => 'array|nullable',
-                'prices' => 'array|nullable',
-            ]);
+  public function store(Request $r) 
+{
+    try {
+        $data = $r->validate([
+            'title' => 'required|string|max:150',
+            'description' => 'nullable|string',
+            'image' => 'nullable|image',
+            'departure_country_id' => 'required|exists:countries,id',
+            'price' => 'required|numeric|min:0',
+            'currency' => 'nullable|in:CFA,USD,EUR', // ajout enum si besoin
+        ]);
 
-            if ($r->hasFile('image')) {
-                $path = $r->file('image')->store('packages', 'public');
-                $data['image'] = asset('storage/' . $path);
-            }
-
-            DB::beginTransaction();
-
-            $pkg = DestinationPackage::create($data);
-
-            if (!empty($data['services'])) {
-                foreach ($data['services'] as $s) {
-                    $pkg->services()->attach($s['service_id'], ['details' => $s['details'] ?? null]);
-                }
-            }
-
-            if (!empty($data['prices'])) {
-                foreach ($data['prices'] as $p) {
-                    $pkg->prices()->create($p);
-                }
-            }
-
-            DB::commit();
-
-            return response()->json([
-                'message' => 'Package créé avec succès',
-                'data' => $pkg->load('departureCountry', 'arrivalCountry', 'prices', 'services')
-            ], 201);
-
-        } catch (ValidationException $e) {
-            return response()->json(['error' => 'Erreur de validation', 'details' => $e->errors()], 422);
-
-        } catch (Exception $e) {
-            DB::rollBack();
-            return response()->json(['error' => 'Erreur interne', 'details' => $e->getMessage()], 500);
+        // Upload image si fourni
+        if ($r->hasFile('image')) {
+            $path = $r->file('image')->store('packages', 'public');
+            $data['image'] = asset('storage/' . $path);
         }
+
+        DB::beginTransaction();
+
+        // Création du package
+        $pkg = DestinationPackage::create($data);
+
+        // Création du price associé
+        $pkg->prices()->create([
+            'price' => $data['price'],
+            'currency' => $data['currency'] ?? 'CFA',
+        ]);
+
+        DB::commit();
+
+        return response()->json([
+            'message' => 'Package créé avec succès',
+            'data' => $pkg->load('departureCountry', 'prices')
+        ], 201);
+
+    } catch (ValidationException $e) {
+        return response()->json(['error' => 'Erreur de validation', 'details' => $e->errors()], 422);
+
+    } catch (Exception $e) {
+        DB::rollBack();
+        return response()->json(['error' => 'Erreur interne', 'details' => $e->getMessage()], 500);
     }
+}
+
+
 
     /**
      * Affiche un package spécifique
@@ -110,12 +107,8 @@ class DestinationPackageController extends Controller
                 'title' => 'sometimes|string|max:150',
                 'description' => 'nullable|string',
                 'image' => 'nullable|image',
-                'min_people' => 'nullable|integer|min:1',
-                'max_people' => 'nullable|integer|min:1',
                 'departure_country_id' => 'nullable|exists:countries,id',
-                'arrival_country_id' => 'nullable|exists:countries,id',
-                'services' => 'array|nullable',
-                'prices' => 'array|nullable',
+                'price' => 'required|numeric|min:0',
             ]);
 
             if ($r->hasFile('image')) {
