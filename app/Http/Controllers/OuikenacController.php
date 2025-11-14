@@ -175,7 +175,11 @@ if ($request->has('additional_cities')) {
     public function show($id)
     {
         try {
-            $package = OuikenacPackage::with(['departureCountry', 'arrivalCountry', 'prices', 'inclusions', 'additionalCities'])->findOrFail($id);
+            $package = OuikenacPackage::with([
+            'prices.departureCountry',
+            'prices.arrivalCountry',
+            'inclusions',
+            'additionalCities'])->findOrFail($id);
             return response()->json($package, 200);
         } catch (ModelNotFoundException $e) {
             return response()->json(['error' => 'Package introuvable'], 404);
