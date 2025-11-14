@@ -14,15 +14,26 @@ use Illuminate\Support\Facades\Storage;
 
 class OuikenacController extends Controller
 {
-    public function index(Request $request)
-    {
-        try {
-            $packages = OuikenacPackage::with(['prices', 'inclusions', 'additionalCities'])->get();
-            return response()->json($packages, 200);
-        } catch (Exception $e) {
-            return response()->json(['error' => 'Erreur lors du chargement des packages', 'details' => $e->getMessage()], 500);
-        }
+   public function index(Request $request)
+{
+    try {
+        $packages = OuikenacPackage::with([
+            'prices.departureCountry',
+            'prices.arrivalCountry',
+            'inclusions',
+            'additionalCities'
+        ])->get();
+
+        return response()->json($packages, 200);
+
+    } catch (Exception $e) {
+        return response()->json([
+            'error' => 'Erreur lors du chargement des packages',
+            'details' => $e->getMessage()
+        ], 500);
     }
+}
+
 
     public function store(Request $request)
     {
