@@ -27,7 +27,7 @@ class ReservationController extends Controller
 
                     // Exemple pour Destination Package
                     \App\Models\DestinationPackage::class => ['prices','departureCountry'],
-                    \App\Models\OuikenacPackage::class => ['prices','departureCountry','additionalCities','inclusions'],
+                    \App\Models\OuikenacPackage::class => ['prices','additionalCities','inclusions'],
 
                 ]);
             },
