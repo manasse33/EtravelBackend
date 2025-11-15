@@ -14,25 +14,42 @@ class ReservationController extends Controller
     /**
      * Lister toutes les réservations
      */
-    public function index(Request $request)
-    {
-        try {
-            $query = Reservation::with('reservable');
+   public function index(Request $request)
+{
+    try {
+        $query = Reservation::query();
 
-            if ($request->has('status')) {
-                $query->where('status', $request->status);
-            }
+        $query->with([
+            'reservable' => function ($morph) {
+                $morph->morphWith([
+                    // Exemple pour City Tour
+                    \App\Models\CityTour::class => ['city', 'country', 'prices'],
 
-            $reservations = $query->orderBy('created_at', 'desc')->get();
+                    // Exemple pour Destination Package
+                    \App\Models\DestinationPackage::class => ['prices','departureCountry'],
+                    \App\Models\OuikenacPackage::class => ['prices','departureCountry','additionalCities','inclusions'],
 
-            return response()->json($reservations);
-        } catch (\Exception $e) {
-            return response()->json([
-                'message' => 'Erreur lors de la récupération des réservations',
-                'error' => $e->getMessage()
-            ], 500);
+                ]);
+            },
+            // 'validator'
+        ]);
+
+        if ($request->has('status')) {
+            $query->where('status', $request->status);
         }
+
+        $reservations = $query->orderBy('created_at', 'desc')->get();
+
+        return response()->json($reservations);
+
+    } catch (\Exception $e) {
+        return response()->json([
+            'message' => 'Erreur lors de la récupération des réservations',
+            'error' => $e->getMessage()
+        ], 500);
     }
+}
+
 
     /**
      * Créer une réservation pour n'importe quel package
