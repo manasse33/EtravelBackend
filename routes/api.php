@@ -10,9 +10,27 @@ use App\Http\Controllers\CityTourController;
 use App\Http\Controllers\ReservationController;
 use App\Http\Controllers\AdminAuthController;
 
-Route::get('/countries', [ConfigController::class,'indexCountries']);
-Route::post('/countries', [ConfigController::class,'storeCountry']);
-Route::post('/cities', [ConfigController::class,'storeCity']);
+// Route::get('/countries', [ConfigController::class,'indexCountries']);
+// Route::post('/countries', [ConfigController::class,'storeCountry']);
+// Route::post('/cities', [ConfigController::class,'storeCity']);
+
+Route::prefix('countries')->group(function () {
+    Route::get('/', [ConfigController::class, 'indexCountries']);        // Liste des pays
+    Route::post('/', [ConfigController::class, 'storeCountry']);         // Ajouter un pays
+    Route::get('{id}', [ConfigController::class, 'showCountry']);        // Voir un pays
+    Route::put('{id}', [ConfigController::class, 'updateCountry']);      // Modifier un pays
+    Route::patch('{id}', [ConfigController::class, 'updateCountry']);    // Modifier un pays (patch)
+    Route::delete('{id}', [ConfigController::class, 'destroyCountry']);  // Supprimer un pays
+});
+
+Route::prefix('cities')->group(function () {
+    Route::get('/', [ConfigController::class, 'indexCities']);           // Liste des villes
+    Route::post('/', [ConfigController::class, 'storeCity']);            // Ajouter une ville
+    Route::get('{id}', [ConfigController::class, 'showCity']);           // Voir une ville
+    Route::put('{id}', [ConfigController::class, 'updateCity']);         // Modifier une ville
+    Route::patch('{id}', [ConfigController::class, 'updateCity']);       // Modifier une ville (patch)
+    Route::delete('{id}', [ConfigController::class, 'destroyCity']);     // Supprimer une ville
+});
 
 // DESTINATIONS
 Route::get('/destinations', [DestinationPackageController::class,'index']);
