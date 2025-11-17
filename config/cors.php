@@ -19,7 +19,7 @@ return [
     'allowed_methods' => ['*'],
 
     // 💡 Nous gardons l'origine exacte de votre frontend. C'est correct.
-    'allowed_origins' => ['https://e-travelworldagency.com/'],
+    'allowed_origins' => ['https://e-travelworldagency.com'],
     // https://etravel-murex.vercel.app
 
     'allowed_origins_patterns' => [],
