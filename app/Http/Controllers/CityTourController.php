@@ -19,10 +19,49 @@ class CityTourController extends Controller
         return response()->json($tours);
     }
 
+    public function storeImageTest(Request $request)
+{
+    try {
+        // 1. Validation de l'image uniquement
+        $request->validate([
+            'image' => 'required|file|image|max:5120', // Obligatoire pour ce test
+        ]);
+
+        // 2. Vérification de l'existence du fichier
+        if (!$request->hasFile('image')) {
+            return response()->json(['message' => 'Fichier non trouvé dans la requête.'], 400);
+        }
+
+        // 3. Tentative de stockage isolée
+        $chemin_relatif = $request->file('image')->store('city_tours/test', 'public');
+
+        // 4. Succès
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Image enregistrée avec succès!',
+            'chemin_enregistre_db' => $chemin_relatif,
+            'chemin_absolu_storage' => storage_path('app/public/' . $chemin_relatif)
+        ], 200);
+
+    } catch (ValidationException $e) {
+        return response()->json([
+            'message' => 'Validation échouée',
+            'errors' => $e->errors()
+        ], 422);
+
+    } catch (Exception $e) {
+        // Capture toute autre erreur (comme un échec de disque)
+        return response()->json([
+            'message' => 'Erreur Critique lors du stockage',
+            'error' => $e->getMessage()
+        ], 500);
+    }
+}
+
     /**
      * Créer un City Tour
      */
-    public function store(Request $request)
+public function store(Request $request)
     {
         try {
             // Validation du package
@@ -41,10 +80,34 @@ class CityTourController extends Controller
             ]);
 
             DB::beginTransaction();
-
-            // Upload image si présent
+            
+            // ✅ SOLUTION DE CONTOURNEMENT INTÉGRÉE : Utilisation de move()
             if ($request->hasFile('image')) {
-                $validated['image'] = $request->file('image')->store('city_tours', 'public');
+                /** @var UploadedFile $imageFile */
+                $imageFile = $request->file('image');
+                $folderName = 'city_tours';
+                $destinationPath = storage_path("app/public/{$folderName}");
+                $fileName = $imageFile->hashName(); // Génère un nom de fichier aléatoire sécurisé
+
+                // 1. Assurez-vous que le dossier de destination existe
+                if (!file_exists($destinationPath)) {
+                    // Tente de créer le dossier récursivement avec les permissions 0775
+                    if (!mkdir($destinationPath, 0775, true)) {
+                         throw new \Exception("Échec de création du dossier de destination: {$destinationPath}");
+                    }
+                }
+                
+                // 2. Déplacement du fichier avec la méthode move()
+                if ($imageFile->move($destinationPath, $fileName)) {
+                    // Le déplacement a réussi. Stocke le chemin relatif.
+                    $validated['image'] = "{$folderName}/{$fileName}";
+                } else {
+                    // Le déplacement a échoué. Annule tout et lève une erreur explicite.
+                    DB::rollBack();
+                    throw new \Exception("Échec critique du déplacement du fichier image du City Tour.");
+                }
+            } else {
+                 $validated['image'] = null;
             }
 
             // Création du tour
@@ -56,7 +119,7 @@ class CityTourController extends Controller
                 'min_people' => $validated['places_min'],
                 'max_people' => $validated['places_max'],
                 'description' => $validated['description'] ?? null,
-                'image' => $validated['image'] ?? null,
+                'image' => $validated['image'], // Utilise le chemin relatif
                 'active' => true,
             ]);
 
@@ -85,12 +148,14 @@ class CityTourController extends Controller
 
         } catch (Exception $e) {
             DB::rollBack();
+            // L'erreur catchée sera maintenant plus spécifique si le move() a échoué
             return response()->json([
                 'message' => 'Une erreur est survenue lors de la création du City Tour',
                 'error' => $e->getMessage()
             ], 500);
         }
     }
+
 
     /**
      * Afficher un City Tour spécifique
@@ -138,8 +203,33 @@ class CityTourController extends Controller
 
             // Upload image si présent
             if ($request->hasFile('image')) {
-                $validated['image'] = $request->file('image')->store('city_tours', 'public');
+                /** @var UploadedFile $imageFile */
+                $imageFile = $request->file('image');
+                $folderName = 'city_tours';
+                $destinationPath = storage_path("app/public/{$folderName}");
+                $fileName = $imageFile->hashName(); // Génère un nom de fichier aléatoire sécurisé
+
+                // 1. Assurez-vous que le dossier de destination existe
+                if (!file_exists($destinationPath)) {
+                    // Tente de créer le dossier récursivement avec les permissions 0775
+                    if (!mkdir($destinationPath, 0775, true)) {
+                         throw new \Exception("Échec de création du dossier de destination: {$destinationPath}");
+                    }
+                }
+                
+                // 2. Déplacement du fichier avec la méthode move()
+                if ($imageFile->move($destinationPath, $fileName)) {
+                    // Le déplacement a réussi. Stocke le chemin relatif.
+                    $validated['image'] = "{$folderName}/{$fileName}";
+                } else {
+                    // Le déplacement a échoué. Annule tout et lève une erreur explicite.
+                    DB::rollBack();
+                    throw new \Exception("Échec critique du déplacement du fichier image du City Tour.");
+                }
+            } else {
+                 $validated['image'] = null;
             }
+
 
             // Préparer les données à update
             $updateData = [];

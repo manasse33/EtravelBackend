@@ -8,4 +8,17 @@ class CityTour extends Model {
     public function prices(){ return $this->morphMany(PackagePrice::class, 'priceable'); }
     public function services(){ return $this->morphToMany(Service::class,'packageable','package_service')->withPivot('details'); }
     public function reservations(){ return $this->morphMany(Reservation::class,'reservable'); }
+
+    // Dans App\Models\OuikenacPackage.php (et les autres)
+
+protected static function boot()
+{
+    parent::boot();
+
+    // Lors de la suppression du Package (deleting)
+    static::deleting(function ($package) {
+        // On supprime tous les prix liés automatiquement
+        $package->prices()->delete();
+    });
+}
 }

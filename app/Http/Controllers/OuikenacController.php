@@ -11,6 +11,7 @@ use Illuminate\Validation\ValidationException;
 use Exception;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Validator;
 
 class OuikenacController extends Controller
 {
@@ -20,6 +21,8 @@ class OuikenacController extends Controller
         $packages = OuikenacPackage::with([
             'prices.departureCountry',
             'prices.arrivalCountry',
+            'prices.departureCity', 
+            'prices.arrivalCity',
             'inclusions',
             'additionalCities'
         ])->get();
@@ -34,127 +37,160 @@ class OuikenacController extends Controller
     }
 }
 
-
-    public function store(Request $request)
+   public function store(Request $request)
     {
         try {
-            // validation minimale pour la création du package (title obligatoire)
+            // 1. Validation du package
             $validatedPackage = $request->validate([
                 'title' => 'required|string|max:255',
                 'description' => 'nullable|string',
-                
-                'image'=>'required|file'
+                'image'=>'nullable|file|image|max:5120' 
             ]);
+            
+            // ✅ BLOC 1 : Image Principale (packages/main)
+            if ($request->hasFile('image')) {
+                /** @var UploadedFile $imageFile */
+                $imageFile = $request->file('image');
+                $folderName = 'packages/main';
+                $destinationPath = storage_path("app/public/{$folderName}");
+                $fileName = $imageFile->hashName(); 
 
+                if (!file_exists($destinationPath)) {
+                    if (!mkdir($destinationPath, 0775, true)) {
+                         throw new \Exception("Échec de création du dossier: {$destinationPath}");
+                    }
+                }
+                
+                if ($imageFile->move($destinationPath, $fileName)) {
+                    $validatedPackage['image'] = "{$folderName}/{$fileName}";
+                } else {
+                    DB::rollBack();
+                    throw new \Exception("Échec critique du déplacement de l'image principale.");
+                }
+            } else {
+                $validatedPackage['image'] = null;
+            }
+            
             DB::beginTransaction();
 
             $package = OuikenacPackage::create($validatedPackage);
 
             // === GRIDS (prices) ===
-            // on attend un tableau 'grids' (array). Les images peuvent être envoyées en tant que fichiers avec
-            // les champs "grids.0.image", "grids.1.image" etc (multipart/form-data).
-           if ($request->has('grids')) {
-    $grids = $request->input('grids');
+            if ($request->has('grids')) {
+                $grids = $request->input('grids');
 
-    // Si c'est une string JSON, décoder en tableau
-    if (is_string($grids)) {
-        $grids = json_decode($grids, true);
-        if (!is_array($grids)) {
-            throw new \Exception("Les grids doivent être un tableau valide.");
-        }
-    }
+                // Si c'est une string JSON, décoder en tableau
+                if (is_string($grids)) {
+                    $grids = json_decode($grids, true);
+                    if (!is_array($grids)) {
+                        throw new \Exception("Les grids doivent être un tableau valide.");
+                    }
+                }
 
-    foreach ($grids as $index => $grid) {
-        // validation par grille
-        $validator = validator($grid, [
-            'country_id' => 'nullable|exists:countries,id',
-            'departure_country_id' => 'required|exists:countries,id',
-            'arrival_country_id' => 'nullable|exists:countries,id',
-            'departure_city_id' => 'required|exists:cities,id',
-            'arrival_city_id' => 'nullable|exists:cities,id',
-            'min_people' => 'required|integer|min:1',
-            'max_people' => 'nullable|integer|min:1',
-            'price' => 'required|numeric|min:0',
-            'currency' => 'required|in:CFA,USD,EUR',
-            'programme' => 'nullable|string',
-        ]);
-        $validatedGrid = $validator->validate();
+                foreach ($grids as $index => $grid) {
+                    // Validation par grille
+                    $validator = Validator::make($grid, [
+                        'country_id' => 'nullable|exists:countries,id',
+                        'departure_country_id' => 'required|exists:countries,id',
+                        'arrival_country_id' => 'nullable|exists:countries,id',
+                        'departure_city_id' => 'required|exists:cities,id',
+                        'arrival_city_id' => 'nullable|exists:cities,id',
+                        'min_people' => 'required|integer|min:1',
+                        'max_people' => 'nullable|integer|min:1',
+                        'price' => 'required|numeric|min:0',
+                        'currency' => 'required|in:CFA,USD,EUR',
+                        'programme' => 'nullable|string',
+                    ]);
+                    $validatedGrid = $validator->validate();
 
-        // gérer l'image si fournie en fichier: input name grids.0.image
-        $imageField = "grids.$index.image";
-        if ($request->hasFile($imageField)) {
-            $path = $request->file($imageField)->store('packages', 'public');
-            $validatedGrid['image'] = $path;
-        }
+                    // ✅ BLOC 2 : Gérer l'image de la grille (packages/grids)
+                    $imageField = "grids.$index.image";
+                    
+                    if ($request->hasFile($imageField)) {
+                        /** @var UploadedFile $gridImageFile */
+                        $gridImageFile = $request->file($imageField);
+                        $gridFolderName = 'packages/grids';
+                        $gridDestinationPath = storage_path("app/public/{$gridFolderName}");
+                        $gridFileName = $gridImageFile->hashName();
 
-        // créer le price (morph)
-        $package->prices()->create([
-            'country_id' => $validatedGrid['country_id'] ?? null,
-            'departure_country_id' => $validatedGrid['departure_country_id'],
-            'arrival_country_id' => $validatedGrid['arrival_country_id'] ?? null,
-            'min_people' => $validatedGrid['min_people'],
-            'max_people' => $validatedGrid['max_people'] ?? null,
-            'price' => $validatedGrid['price'],
-            'currency' => $validatedGrid['currency'],
-            'programme' => $validatedGrid['programme'] ?? null,
-        ]);
-    }
-}
+                        if (!file_exists($gridDestinationPath)) {
+                            if (!mkdir($gridDestinationPath, 0775, true)) {
+                                throw new \Exception("Échec de création du dossier de grille: {$gridDestinationPath}");
+                            }
+                        }
+
+                        if ($gridImageFile->move($gridDestinationPath, $gridFileName)) {
+                            $validatedGrid['image'] = "{$gridFolderName}/{$gridFileName}";
+                        } else {
+                            // Pas de rollback ici, car nous sommes dans une boucle,
+                            // mais on lève une exception pour forcer le rollback de la transaction principale (ci-dessous)
+                            throw new \Exception("Échec critique du déplacement de l'image de la grille #{$index}.");
+                        }
+                    } else {
+                        $validatedGrid['image'] = null; 
+                    }
+
+                    // créer le price (morph)
+                    $package->prices()->create([
+                        'country_id' => $validatedGrid['country_id'] ?? null,
+                        'departure_country_id' => $validatedGrid['departure_country_id'],
+                        'arrival_country_id' => $validatedGrid['arrival_country_id'] ?? null,
+                         'departure_city_id' => $validatedGrid['departure_city_id'] ?? null,
+                        'arrival_city_id'   => $validatedGrid['arrival_city_id'] ?? null,
+                        'min_people' => $validatedGrid['min_people'],
+                        'max_people' => $validatedGrid['max_people'] ?? null,
+                        'price' => $validatedGrid['price'],
+                        'currency' => $validatedGrid['currency'],
+                        'programme' => $validatedGrid['programme'] ?? null,
+                        'image' => $validatedGrid['image'], 
+                    ]);
+                }
+            }
 
 
             // === INCLUSIONS ===
-            // on attend un tableau d'objets {name, description?} ou simplement une liste de strings
-          // === INCLUSIONS ===
-// on attend un tableau d'objets {name, description?} ou simplement une liste de strings
-if ($request->has('inclusions')) {
-    $inclusions = $request->input('inclusions');
+            if ($request->has('inclusions')) {
+                $inclusions = $request->input('inclusions');
 
-    // NOUVEAU : Décodez le JSON si c'est une chaîne (fréquent avec multipart/form-data)
-    if (is_string($inclusions)) {
-        $inclusions = json_decode($inclusions, true);
-        if (!is_array($inclusions)) {
-            // Logique de sécurité pour éviter l'erreur si le JSON est invalide
-            throw new \Exception("Les inclusions doivent être un tableau valide.");
-        }
-    }
+                if (is_string($inclusions)) {
+                    $inclusions = json_decode($inclusions, true);
+                    if (!is_array($inclusions)) {
+                        throw new \Exception("Les inclusions doivent être un tableau valide.");
+                    }
+                }
 
-    // si c'est une simple liste de strings => transform
-    if ($this->isListOfStrings($inclusions)) {
-        foreach ($inclusions as $name) {
-            $package->inclusions()->create(['name' => $name]);
-        }
-    } else {
-        foreach ($inclusions as $inc) {
-            $validatedInc = validator($inc, [
-                'name' => 'required|string|max:150',
-                'description' => 'nullable|string',
-            ])->validate();
+                if (method_exists($this, 'isListOfStrings') && $this->isListOfStrings($inclusions)) {
+                    foreach ($inclusions as $name) {
+                        $package->inclusions()->create(['name' => $name]);
+                    }
+                } else {
+                    foreach ($inclusions as $inc) {
+                        $validatedInc = Validator::make($inc, [
+                            'name' => 'required|string|max:150',
+                            'description' => 'nullable|string',
+                        ])->validate();
 
-            $package->inclusions()->create($validatedInc);
-        }
-    }
-}
+                        $package->inclusions()->create($validatedInc);
+                    }
+                }
+            }
 
             // === VILLES ADDITIONNELLES ===
-            // on attend un tableau 'additional_cities' = [{city_id: X, type: 'escale'}] or [cityId, cityId]
-           // === VILLES ADDITIONNELLES ===
-// on attend un tableau 'additional_cities' = [{city_id: X, type: 'escale'}] or [cityId, cityId]
-if ($request->has('additional_cities')) {
-    $cities = $request->input('additional_cities');
-    
-    // NOUVEAU : Décodez le JSON si c'est une chaîne
-    if (is_string($cities)) {
-        $cities = json_decode($cities, true);
-        if (!is_array($cities)) {
-            throw new \Exception("Les villes additionnelles doivent être un tableau valide.");
-        }
-    }
-    
-    foreach ($cities as $c) {
-        // ... (reste du code)
-    }
-}
-
+            if ($request->has('additional_cities')) {
+                $cities = $request->input('additional_cities');
+                
+                if (is_string($cities)) {
+                    $cities = json_decode($cities, true);
+                    if (!is_array($cities)) {
+                        throw new \Exception("Les villes additionnelles doivent être un tableau valide.");
+                    }
+                }
+                
+                foreach ($cities as $c) {
+                    // ... (logique de création des villes additionnelles)
+                }
+            }
+            
             DB::commit();
 
             return response()->json([
@@ -171,6 +207,7 @@ if ($request->has('additional_cities')) {
             return response()->json(['error' => 'Erreur lors de la création du package', 'details' => $e->getMessage()], 500);
         }
     }
+
 
     public function show($id)
     {
@@ -231,10 +268,30 @@ if ($request->has('additional_cities')) {
                     $validatedGrid = $gridValidator->validate();
 
                     // handle image file
-                    $imageField = "grids.$index.image";
+                       $imageField = "grids.$index.image";
+                    
                     if ($request->hasFile($imageField)) {
-                        $path = $request->file($imageField)->store('packages', 'public');
-                        $validatedGrid['image'] = $path;
+                        /** @var UploadedFile $gridImageFile */
+                        $gridImageFile = $request->file($imageField);
+                        $gridFolderName = 'packages/grids';
+                        $gridDestinationPath = storage_path("app/public/{$gridFolderName}");
+                        $gridFileName = $gridImageFile->hashName();
+
+                        if (!file_exists($gridDestinationPath)) {
+                            if (!mkdir($gridDestinationPath, 0775, true)) {
+                                throw new \Exception("Échec de création du dossier de grille: {$gridDestinationPath}");
+                            }
+                        }
+
+                        if ($gridImageFile->move($gridDestinationPath, $gridFileName)) {
+                            $validatedGrid['image'] = "{$gridFolderName}/{$gridFileName}";
+                        } else {
+                            // Pas de rollback ici, car nous sommes dans une boucle,
+                            // mais on lève une exception pour forcer le rollback de la transaction principale (ci-dessous)
+                            throw new \Exception("Échec critique du déplacement de l'image de la grille #{$index}.");
+                        }
+                    } else {
+                        $validatedGrid['image'] = null; 
                     }
 
                     if (!empty($validatedGrid['id'])) {

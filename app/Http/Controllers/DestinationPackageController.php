@@ -31,50 +31,76 @@ class DestinationPackageController extends Controller
     /**
      * Crée un package
      */
-  public function store(Request $r) 
-{
-    try {
-        $data = $r->validate([
-            'title' => 'required|string|max:150',
-            'description' => 'nullable|string',
-            'image' => 'nullable|image',
-            'departure_country_id' => 'required|exists:countries,id',
-            'price' => 'required|numeric|min:0',
-            'currency' => 'nullable|in:CFA,USD,EUR', // ajout enum si besoin
-        ]);
+public function store(Request $r) 
+    {
+        try {
+            $data = $r->validate([
+                'title' => 'required|string|max:150',
+                'description' => 'nullable|string',
+                'image' => 'nullable|image|max:5120', // Validation du fichier image
+                'departure_country_id' => 'required|exists:countries,id',
+                'price' => 'required|numeric|min:0',
+                'currency' => 'nullable|in:CFA,USD,EUR',
+            ]);
 
-        // Upload image si fourni
-        if ($r->hasFile('image')) {
-            $path = $r->file('image')->store('packages', 'public');
-            $data['image'] = asset('storage/' . $path);
+            DB::beginTransaction();
+
+            // ✅ SOLUTION DE CONTOURNEMENT INTÉGRÉE : Utilisation de move()
+            if ($r->hasFile('image')) {
+                /** @var UploadedFile $imageFile */
+                $imageFile = $r->file('image');
+                $folderName = 'packages'; // Le dossier cible dans storage/app/public/
+                $destinationPath = storage_path("app/public/{$folderName}");
+                $fileName = $imageFile->hashName(); // Nom de fichier aléatoire sécurisé
+
+                // 1. Assurez-vous que le dossier de destination existe
+                if (!file_exists($destinationPath)) {
+                    // Tente de créer le dossier récursivement
+                    if (!mkdir($destinationPath, 0775, true)) {
+                         // Si la création échoue (permission), on lève une erreur
+                         throw new \Exception("Échec de création du dossier de destination: {$destinationPath}");
+                    }
+                }
+                
+                // 2. Déplacement du fichier avec la méthode move()
+                if ($imageFile->move($destinationPath, $fileName)) {
+                    // Le déplacement a réussi. Stocke le chemin relatif.
+                    $data['image'] = "{$folderName}/{$fileName}";
+                } else {
+                    // Le déplacement a échoué (problème critique de serveur).
+                    DB::rollBack();
+                    throw new \Exception("Échec critique du déplacement du fichier image du Package de Destination.");
+                }
+            } else {
+                 $data['image'] = null;
+            }
+
+            // Création du package
+            $pkg = DestinationPackage::create($data);
+
+            // Création du price associé
+            $pkg->prices()->create([
+                'price' => $data['price'],
+                'currency' => $data['currency'] ?? 'CFA',
+            ]);
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Package créé avec succès',
+                'data' => $pkg->load('departureCountry', 'prices')
+            ], 201);
+
+        } catch (ValidationException $e) {
+            DB::rollBack();
+            return response()->json(['error' => 'Erreur de validation', 'details' => $e->errors()], 422);
+
+        } catch (Exception $e) {
+            DB::rollBack();
+            // L'erreur catchée sera l'erreur explicite si le move() a échoué
+            return response()->json(['error' => 'Erreur interne', 'details' => $e->getMessage()], 500);
         }
-
-        DB::beginTransaction();
-
-        // Création du package
-        $pkg = DestinationPackage::create($data);
-
-        // Création du price associé
-        $pkg->prices()->create([
-            'price' => $data['price'],
-            'currency' => $data['currency'] ?? 'CFA',
-        ]);
-
-        DB::commit();
-
-        return response()->json([
-            'message' => 'Package créé avec succès',
-            'data' => $pkg->load('departureCountry', 'prices')
-        ], 201);
-
-    } catch (ValidationException $e) {
-        return response()->json(['error' => 'Erreur de validation', 'details' => $e->errors()], 422);
-
-    } catch (Exception $e) {
-        DB::rollBack();
-        return response()->json(['error' => 'Erreur interne', 'details' => $e->getMessage()], 500);
     }
-}
 
 
 
@@ -111,12 +137,40 @@ class DestinationPackageController extends Controller
                 'price' => 'required|numeric|min:0',
             ]);
 
-            if ($r->hasFile('image')) {
-                $path = $r->file('image')->store('packages', 'public');
-                $validated['image'] = asset('storage/' . $path);
-            }
+            // if ($r->hasFile('image')) {
+            //     $path = $r->file('image')->store('packages', 'public');
+            //     $validated['image'] = asset('storage/' . $path);
+            // }
 
             DB::beginTransaction();
+             if ($r->hasFile('image')) {
+                /** @var UploadedFile $imageFile */
+                $imageFile = $r->file('image');
+                $folderName = 'packages'; // Le dossier cible dans storage/app/public/
+                $destinationPath = storage_path("app/public/{$folderName}");
+                $fileName = $imageFile->hashName(); // Nom de fichier aléatoire sécurisé
+
+                // 1. Assurez-vous que le dossier de destination existe
+                if (!file_exists($destinationPath)) {
+                    // Tente de créer le dossier récursivement
+                    if (!mkdir($destinationPath, 0775, true)) {
+                         // Si la création échoue (permission), on lève une erreur
+                         throw new \Exception("Échec de création du dossier de destination: {$destinationPath}");
+                    }
+                }
+                
+                // 2. Déplacement du fichier avec la méthode move()
+                if ($imageFile->move($destinationPath, $fileName)) {
+                    // Le déplacement a réussi. Stocke le chemin relatif.
+                    $data['image'] = "{$folderName}/{$fileName}";
+                } else {
+                    // Le déplacement a échoué (problème critique de serveur).
+                    DB::rollBack();
+                    throw new \Exception("Échec critique du déplacement du fichier image du Package de Destination.");
+                }
+            } else {
+                 $data['image'] = null;
+            }
 
             $pkg->update($validated);
 
@@ -146,7 +200,7 @@ class DestinationPackageController extends Controller
 
             return response()->json([
                 'message' => 'Package mis à jour avec succès',
-                'data' => $pkg->load('departureCountry', 'arrivalCountry', 'prices', 'services')
+                'data' => $pkg->load('departureCountry', 'prices')
             ], 200);
 
         } catch (ValidationException $e) {

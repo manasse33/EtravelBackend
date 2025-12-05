@@ -34,4 +34,17 @@ class OuikenacPackage extends Model
     public function reservations() {
         return $this->morphMany(Reservation::class, 'reservable');
     }
+
+    // Dans App\Models\OuikenacPackage.php (et les autres)
+
+protected static function boot()
+{
+    parent::boot();
+
+    // Lors de la suppression du Package (deleting)
+    static::deleting(function ($package) {
+        // On supprime tous les prix liés automatiquement
+        $package->prices()->delete();
+    });
+}
 }
