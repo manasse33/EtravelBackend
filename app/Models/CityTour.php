@@ -2,7 +2,7 @@
 namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 class CityTour extends Model {
-    protected $fillable = ['title','description','image','country_id','city_id','scheduled_date','min_people','max_people','active'];
+    protected $fillable = ['title','description','image','country_id','city_id','scheduled_date','itinerary','min_people','max_people','active'];
     public function city(){ return $this->belongsTo(City::class); }
     public function country(){ return $this->belongsTo(Country::class); }
     public function prices(){ return $this->morphMany(PackagePrice::class, 'priceable'); }

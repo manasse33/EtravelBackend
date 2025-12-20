@@ -4,11 +4,10 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\DestinationPackage;
-use App\Models\PackagePrice;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
-use Exception;
 use Illuminate\Support\Facades\DB;
+use Exception;
 
 class DestinationPackageController extends Controller
 {
@@ -18,7 +17,10 @@ class DestinationPackageController extends Controller
     public function index()
     {
         try {
-            $packages = DestinationPackage::with(['departureCountry',  'prices'])->get();
+            $packages = DestinationPackage::with(['departureCountry', 'prices'])
+                ->latest()
+                ->get();
+                
             return response()->json($packages, 200);
         } catch (Exception $e) {
             return response()->json([
@@ -31,13 +33,13 @@ class DestinationPackageController extends Controller
     /**
      * Crée un package
      */
-public function store(Request $r) 
+    public function store(Request $r) 
     {
         try {
             $data = $r->validate([
                 'title' => 'required|string|max:150',
                 'description' => 'nullable|string',
-                'image' => 'nullable|image|max:5120', // Validation du fichier image
+                'image' => 'nullable|image|max:5120',
                 'departure_country_id' => 'required|exists:countries,id',
                 'price' => 'required|numeric|min:0',
                 'currency' => 'nullable|in:CFA,USD,EUR',
@@ -45,40 +47,41 @@ public function store(Request $r)
 
             DB::beginTransaction();
 
-            // ✅ SOLUTION DE CONTOURNEMENT INTÉGRÉE : Utilisation de move()
+            // --- GESTION IMAGE MANUELLE (Solution Compatible) ---
+            $imagePath = null;
             if ($r->hasFile('image')) {
-                /** @var UploadedFile $imageFile */
                 $imageFile = $r->file('image');
-                $folderName = 'packages'; // Le dossier cible dans storage/app/public/
+                $folderName = 'packages'; // Dossier de destination
+                // Chemin physique absolu
                 $destinationPath = storage_path("app/public/{$folderName}");
-                $fileName = $imageFile->hashName(); // Nom de fichier aléatoire sécurisé
+                $fileName = $imageFile->hashName();
 
-                // 1. Assurez-vous que le dossier de destination existe
+                // 1. Création forcée du dossier avec permissions
                 if (!file_exists($destinationPath)) {
-                    // Tente de créer le dossier récursivement
                     if (!mkdir($destinationPath, 0775, true)) {
-                         // Si la création échoue (permission), on lève une erreur
-                         throw new \Exception("Échec de création du dossier de destination: {$destinationPath}");
+                        throw new Exception("Impossible de créer le dossier {$destinationPath}");
                     }
                 }
-                
-                // 2. Déplacement du fichier avec la méthode move()
+
+                // 2. Déplacement du fichier
                 if ($imageFile->move($destinationPath, $fileName)) {
-                    // Le déplacement a réussi. Stocke le chemin relatif.
-                    $data['image'] = "{$folderName}/{$fileName}";
+                    $imagePath = "{$folderName}/{$fileName}";
                 } else {
-                    // Le déplacement a échoué (problème critique de serveur).
-                    DB::rollBack();
-                    throw new \Exception("Échec critique du déplacement du fichier image du Package de Destination.");
+                    throw new Exception("Échec de l'upload de l'image");
                 }
-            } else {
-                 $data['image'] = null;
             }
+            // ----------------------------------------------------
 
             // Création du package
-            $pkg = DestinationPackage::create($data);
+            $pkg = DestinationPackage::create([
+                'title' => $data['title'],
+                'description' => $data['description'] ?? null,
+                'image' => $imagePath,
+                'departure_country_id' => $data['departure_country_id'],
+                'active' => true
+            ]);
 
-            // Création du price associé
+            // Création du prix associé
             $pkg->prices()->create([
                 'price' => $data['price'],
                 'currency' => $data['currency'] ?? 'CFA',
@@ -94,15 +97,12 @@ public function store(Request $r)
         } catch (ValidationException $e) {
             DB::rollBack();
             return response()->json(['error' => 'Erreur de validation', 'details' => $e->errors()], 422);
-
         } catch (Exception $e) {
             DB::rollBack();
-            // L'erreur catchée sera l'erreur explicite si le move() a échoué
+            \Log::error('Erreur Store DestinationPackage: ' . $e->getMessage());
             return response()->json(['error' => 'Erreur interne', 'details' => $e->getMessage()], 500);
         }
     }
-
-
 
     /**
      * Affiche un package spécifique
@@ -110,14 +110,11 @@ public function store(Request $r)
     public function show($id)
     {
         try {
-            $pkg = DestinationPackage::with('prices', 'services')->findOrFail($id);
+            $pkg = DestinationPackage::with(['departureCountry', 'prices'])->findOrFail($id);
             return response()->json($pkg, 200);
 
         } catch (ModelNotFoundException $e) {
             return response()->json(['error' => 'Package introuvable'], 404);
-
-        } catch (Exception $e) {
-            return response()->json(['error' => 'Erreur lors de la récupération du package', 'details' => $e->getMessage()], 500);
         }
     }
 
@@ -132,69 +129,59 @@ public function store(Request $r)
             $validated = $r->validate([
                 'title' => 'sometimes|string|max:150',
                 'description' => 'nullable|string',
-                'image' => 'nullable|image',
+                'image' => 'nullable|image|max:5120',
                 'departure_country_id' => 'nullable|exists:countries,id',
-                'price' => 'required|numeric|min:0',
+                'price' => 'nullable|numeric|min:0', 
+                'currency' => 'nullable|in:CFA,USD,EUR',
             ]);
 
-            // if ($r->hasFile('image')) {
-            //     $path = $r->file('image')->store('packages', 'public');
-            //     $validated['image'] = asset('storage/' . $path);
-            // }
-
             DB::beginTransaction();
-             if ($r->hasFile('image')) {
-                /** @var UploadedFile $imageFile */
-                $imageFile = $r->file('image');
-                $folderName = 'packages'; // Le dossier cible dans storage/app/public/
-                $destinationPath = storage_path("app/public/{$folderName}");
-                $fileName = $imageFile->hashName(); // Nom de fichier aléatoire sécurisé
 
-                // 1. Assurez-vous que le dossier de destination existe
-                if (!file_exists($destinationPath)) {
-                    // Tente de créer le dossier récursivement
-                    if (!mkdir($destinationPath, 0775, true)) {
-                         // Si la création échoue (permission), on lève une erreur
-                         throw new \Exception("Échec de création du dossier de destination: {$destinationPath}");
+            // --- GESTION IMAGE MANUELLE (Mise à jour) ---
+            if ($r->hasFile('image')) {
+                // 1. Suppression de l'ancienne image si elle existe
+                if ($pkg->image) {
+                    $oldPath = storage_path("app/public/{$pkg->image}");
+                    if (file_exists($oldPath)) {
+                        @unlink($oldPath); // Suppression physique
                     }
                 }
                 
-                // 2. Déplacement du fichier avec la méthode move()
+                // 2. Upload de la nouvelle
+                $imageFile = $r->file('image');
+                $folderName = 'packages';
+                $destinationPath = storage_path("app/public/{$folderName}");
+                $fileName = $imageFile->hashName();
+
+                if (!file_exists($destinationPath)) {
+                    mkdir($destinationPath, 0775, true);
+                }
+                
                 if ($imageFile->move($destinationPath, $fileName)) {
-                    // Le déplacement a réussi. Stocke le chemin relatif.
-                    $data['image'] = "{$folderName}/{$fileName}";
-                } else {
-                    // Le déplacement a échoué (problème critique de serveur).
-                    DB::rollBack();
-                    throw new \Exception("Échec critique du déplacement du fichier image du Package de Destination.");
-                }
-            } else {
-                 $data['image'] = null;
-            }
-
-            $pkg->update($validated);
-
-            // Mettre à jour les services
-            if ($r->has('services')) {
-                $syncServices = [];
-                foreach ($r->services as $s) {
-                    $syncServices[$s['service_id']] = ['details' => $s['details'] ?? null];
-                }
-                $pkg->services()->sync($syncServices);
-            }
-
-            // Mettre à jour les prices
-            if ($r->has('prices')) {
-                foreach ($r->prices as $p) {
-                    if (isset($p['id'])) {
-                        // Update existing price
-                        $pkg->prices()->where('id', $p['id'])->update($p);
-                    } else {
-                        // Create new price
-                        $pkg->prices()->create($p);
-                    }
+                    $pkg->image = "{$folderName}/{$fileName}";
                 }
             }
+            // ---------------------------------------------
+
+            // 2. Mise à jour des champs simples
+            if (isset($validated['title'])) $pkg->title = $validated['title'];
+            if (isset($validated['description'])) $pkg->description = $validated['description'];
+            if (isset($validated['departure_country_id'])) $pkg->departure_country_id = $validated['departure_country_id'];
+            
+            $pkg->save();
+
+            // 3. Mise à jour du Prix
+            $price = $pkg->prices()->firstOrNew([]);
+            
+            if (isset($validated['price'])) $price->price = $validated['price'];
+            if (isset($validated['currency'])) $price->currency = $validated['currency'];
+            
+            if (!$price->exists) {
+                $price->currency = $validated['currency'] ?? 'CFA';
+                $price->price = $validated['price'] ?? 0;
+            }
+            
+            $price->save();
 
             DB::commit();
 
@@ -204,13 +191,16 @@ public function store(Request $r)
             ], 200);
 
         } catch (ValidationException $e) {
+            DB::rollBack();
             return response()->json(['error' => 'Erreur de validation', 'details' => $e->errors()], 422);
 
         } catch (ModelNotFoundException $e) {
+            DB::rollBack();
             return response()->json(['error' => 'Package introuvable'], 404);
 
         } catch (Exception $e) {
             DB::rollBack();
+            \Log::error('Erreur Update DestinationPackage: ' . $e->getMessage());
             return response()->json(['error' => 'Erreur lors de la mise à jour', 'details' => $e->getMessage()], 500);
         }
     }
@@ -222,12 +212,20 @@ public function store(Request $r)
     {
         try {
             $pkg = DestinationPackage::findOrFail($id);
+            
+            // Suppression manuelle de l'image
+            if ($pkg->image) {
+                $filePath = storage_path("app/public/{$pkg->image}");
+                if (file_exists($filePath)) {
+                    @unlink($filePath);
+                }
+            }
+
             $pkg->delete();
             return response()->json(['message' => 'Package supprimé avec succès'], 200);
 
         } catch (ModelNotFoundException $e) {
             return response()->json(['error' => 'Package introuvable'], 404);
-
         } catch (Exception $e) {
             return response()->json(['error' => 'Erreur lors de la suppression', 'details' => $e->getMessage()], 500);
         }

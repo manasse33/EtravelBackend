@@ -5,7 +5,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class OuikenacPackage extends Model
 {
-    protected $fillable = ['title','description','image','active'];
+    protected $fillable = ['title','description','image','active','country_id'];
     //  public function departureCountry() {
     //     return $this->belongsTo(Country::class, 'departure_country_id');
     // }
@@ -35,6 +35,12 @@ class OuikenacPackage extends Model
         return $this->morphMany(Reservation::class, 'reservable');
     }
 
+    // Dans app/Models/OuikenacPackage.php
+
+public function country()
+{
+    return $this->belongsTo(Country::class);
+}
     // Dans App\Models\OuikenacPackage.php (et les autres)
 
 protected static function boot()

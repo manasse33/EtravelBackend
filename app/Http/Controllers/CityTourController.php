@@ -7,6 +7,8 @@ use App\Models\CityTour;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Exception;
+// On garde Storage pour la suppression, mais on utilisera move() pour l'upload
+use Illuminate\Support\Facades\Storage; 
 
 class CityTourController extends Controller
 {
@@ -15,56 +17,19 @@ class CityTourController extends Controller
      */
     public function index()
     {
-        $tours = CityTour::with(['country', 'city', 'prices'])->get();
+        $tours = CityTour::with(['country', 'city', 'prices'])
+                    ->latest()
+                    ->get();
         return response()->json($tours);
     }
-
-    public function storeImageTest(Request $request)
-{
-    try {
-        // 1. Validation de l'image uniquement
-        $request->validate([
-            'image' => 'required|file|image|max:5120', // Obligatoire pour ce test
-        ]);
-
-        // 2. Vérification de l'existence du fichier
-        if (!$request->hasFile('image')) {
-            return response()->json(['message' => 'Fichier non trouvé dans la requête.'], 400);
-        }
-
-        // 3. Tentative de stockage isolée
-        $chemin_relatif = $request->file('image')->store('city_tours/test', 'public');
-
-        // 4. Succès
-        return response()->json([
-            'status' => 'success',
-            'message' => 'Image enregistrée avec succès!',
-            'chemin_enregistre_db' => $chemin_relatif,
-            'chemin_absolu_storage' => storage_path('app/public/' . $chemin_relatif)
-        ], 200);
-
-    } catch (ValidationException $e) {
-        return response()->json([
-            'message' => 'Validation échouée',
-            'errors' => $e->errors()
-        ], 422);
-
-    } catch (Exception $e) {
-        // Capture toute autre erreur (comme un échec de disque)
-        return response()->json([
-            'message' => 'Erreur Critique lors du stockage',
-            'error' => $e->getMessage()
-        ], 500);
-    }
-}
 
     /**
      * Créer un City Tour
      */
-public function store(Request $request)
+    public function store(Request $request)
     {
         try {
-            // Validation du package
+            // 1. Validation
             $validated = $request->validate([
                 'nom' => 'required|string|max:255',
                 'country_id' => 'required|exists:countries,id',
@@ -73,44 +38,44 @@ public function store(Request $request)
                 'places_min' => 'required|integer|min:1',
                 'places_max' => 'required|integer|min:1|gte:places_min',
                 'description' => 'nullable|string',
-                'price' => 'required|numeric|min:0',
+                'itinerary' => 'nullable|string',
+                'programme' => 'nullable|string',
+                
+                // Prix nullable pour permettre le nettoyage
+                'price_individual' => 'nullable', 
+                'price_group' => 'nullable',
                 'currency' => 'required|in:CFA,USD,EUR',
-                'image' => 'nullable|file|image|max:5120', // max 5MB
-                'programme'=>'nullable|string'
+                
+                'image' => 'nullable|file|image|max:5120',
             ]);
 
             DB::beginTransaction();
             
-            // ✅ SOLUTION DE CONTOURNEMENT INTÉGRÉE : Utilisation de move()
+            // 2. GESTION IMAGE (Méthode Manuelle qui fonctionne chez vous)
+            $imagePath = null;
             if ($request->hasFile('image')) {
-                /** @var UploadedFile $imageFile */
                 $imageFile = $request->file('image');
                 $folderName = 'city_tours';
+                // On force le chemin absolu vers storage/app/public
                 $destinationPath = storage_path("app/public/{$folderName}");
-                $fileName = $imageFile->hashName(); // Génère un nom de fichier aléatoire sécurisé
+                $fileName = $imageFile->hashName();
 
-                // 1. Assurez-vous que le dossier de destination existe
+                // Création manuelle du dossier avec permissions 0775
                 if (!file_exists($destinationPath)) {
-                    // Tente de créer le dossier récursivement avec les permissions 0775
                     if (!mkdir($destinationPath, 0775, true)) {
-                         throw new \Exception("Échec de création du dossier de destination: {$destinationPath}");
+                         throw new \Exception("Échec de création du dossier: {$destinationPath}");
                     }
                 }
                 
-                // 2. Déplacement du fichier avec la méthode move()
+                // Déplacement manuel du fichier
                 if ($imageFile->move($destinationPath, $fileName)) {
-                    // Le déplacement a réussi. Stocke le chemin relatif.
-                    $validated['image'] = "{$folderName}/{$fileName}";
+                    $imagePath = "{$folderName}/{$fileName}";
                 } else {
-                    // Le déplacement a échoué. Annule tout et lève une erreur explicite.
-                    DB::rollBack();
-                    throw new \Exception("Échec critique du déplacement du fichier image du City Tour.");
+                    throw new \Exception("Échec du déplacement de l'image.");
                 }
-            } else {
-                 $validated['image'] = null;
             }
 
-            // Création du tour
+            // 3. Création du City Tour
             $tour = CityTour::create([
                 'title' => $validated['nom'],
                 'country_id' => $validated['country_id'],
@@ -119,17 +84,30 @@ public function store(Request $request)
                 'min_people' => $validated['places_min'],
                 'max_people' => $validated['places_max'],
                 'description' => $validated['description'] ?? null,
-                'image' => $validated['image'], // Utilise le chemin relatif
+                'itinerary' => $validated['itinerary'] ?? null,
+                'image' => $imagePath, // Le chemin généré manuellement
                 'active' => true,
             ]);
 
-            // Création du price
+            // 4. Nettoyage des Prix
+            $p_indiv = ($validated['price_individual'] !== '' && $validated['price_individual'] !== null) 
+                        ? $validated['price_individual'] : null;
+            
+            $p_group = ($validated['price_group'] !== '' && $validated['price_group'] !== null) 
+                        ? $validated['price_group'] : null;
+
+            // Fallback pour le champ legacy 'price'
+            $mainPrice = $p_group ?? $p_indiv ?? 0;
+
+            // 5. Création du Prix associé
             $tour->prices()->create([
-                'price' => $validated['price'],
+                'price' => $mainPrice,
+                'price_individual' => $p_indiv,
+                'price_group' => $p_group,
                 'currency' => $validated['currency'],
                 'min_people' => $validated['places_min'],
                 'max_people' => $validated['places_max'],
-                'programme' => $validated['programme'],
+                'programme' => $validated['programme'] ?? null,
             ]);
 
             DB::commit();
@@ -141,21 +119,13 @@ public function store(Request $request)
 
         } catch (ValidationException $e) {
             DB::rollBack();
-            return response()->json([
-                'message' => 'Validation échouée',
-                'errors' => $e->errors()
-            ], 422);
-
+            return response()->json(['message' => 'Erreur de validation', 'errors' => $e->errors()], 422);
         } catch (Exception $e) {
             DB::rollBack();
-            // L'erreur catchée sera maintenant plus spécifique si le move() a échoué
-            return response()->json([
-                'message' => 'Une erreur est survenue lors de la création du City Tour',
-                'error' => $e->getMessage()
-            ], 500);
+            \Log::error('Erreur Store CityTour: ' . $e->getMessage());
+            return response()->json(['message' => 'Erreur serveur lors de la création.', 'error' => $e->getMessage()], 500);
         }
     }
-
 
     /**
      * Afficher un City Tour spécifique
@@ -166,14 +136,7 @@ public function store(Request $request)
             $tour = CityTour::with(['country', 'city', 'prices'])->findOrFail($id);
             return response()->json($tour);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
-            return response()->json([
-                'message' => 'City Tour non trouvé'
-            ], 404);
-        } catch (Exception $e) {
-            return response()->json([
-                'message' => 'Erreur serveur',
-                'error' => $e->getMessage()
-            ], 500);
+            return response()->json(['message' => 'City Tour introuvable'], 404);
         }
     }
 
@@ -185,6 +148,7 @@ public function store(Request $request)
         try {
             $tour = CityTour::findOrFail($id);
 
+            // 1. Validation
             $validated = $request->validate([
                 'nom' => 'sometimes|string|max:255',
                 'country_id' => 'sometimes|exists:countries,id',
@@ -193,71 +157,75 @@ public function store(Request $request)
                 'places_min' => 'sometimes|integer|min:1',
                 'places_max' => 'sometimes|integer|min:1|gte:places_min',
                 'description' => 'nullable|string',
-                'price' => 'sometimes|numeric|min:0',
+                'itinerary' => 'nullable|string',
+                'programme' => 'nullable|string',
+                'price_individual' => 'nullable',
+                'price_group' => 'nullable',
                 'currency' => 'sometimes|in:CFA,USD,EUR',
                 'image' => 'nullable|file|image|max:5120',
-                'programme'=>'nullable|string'
+                'active' => 'boolean'
             ]);
 
             DB::beginTransaction();
 
-            // Upload image si présent
+            // 2. GESTION IMAGE (Méthode Manuelle)
             if ($request->hasFile('image')) {
-                /** @var UploadedFile $imageFile */
-                $imageFile = $request->file('image');
-                $folderName = 'city_tours';
-                $destinationPath = storage_path("app/public/{$folderName}");
-                $fileName = $imageFile->hashName(); // Génère un nom de fichier aléatoire sécurisé
-
-                // 1. Assurez-vous que le dossier de destination existe
-                if (!file_exists($destinationPath)) {
-                    // Tente de créer le dossier récursivement avec les permissions 0775
-                    if (!mkdir($destinationPath, 0775, true)) {
-                         throw new \Exception("Échec de création du dossier de destination: {$destinationPath}");
+                // Tenter de supprimer l'ancienne image si elle existe
+                if ($tour->image) {
+                    $oldPath = storage_path("app/public/{$tour->image}");
+                    if (file_exists($oldPath)) {
+                        @unlink($oldPath); // @ pour éviter erreur si fichier déjà parti
                     }
                 }
                 
-                // 2. Déplacement du fichier avec la méthode move()
-                if ($imageFile->move($destinationPath, $fileName)) {
-                    // Le déplacement a réussi. Stocke le chemin relatif.
-                    $validated['image'] = "{$folderName}/{$fileName}";
-                } else {
-                    // Le déplacement a échoué. Annule tout et lève une erreur explicite.
-                    DB::rollBack();
-                    throw new \Exception("Échec critique du déplacement du fichier image du City Tour.");
+                $imageFile = $request->file('image');
+                $folderName = 'city_tours';
+                $destinationPath = storage_path("app/public/{$folderName}");
+                $fileName = $imageFile->hashName();
+
+                if (!file_exists($destinationPath)) {
+                    mkdir($destinationPath, 0775, true);
                 }
-            } else {
-                 $validated['image'] = null;
+                
+                if ($imageFile->move($destinationPath, $fileName)) {
+                    $tour->image = "{$folderName}/{$fileName}";
+                }
             }
 
+            // 3. Mise à jour des champs principaux
+            if (isset($validated['nom'])) $tour->title = $validated['nom'];
+            if (isset($validated['country_id'])) $tour->country_id = $validated['country_id'];
+            if (isset($validated['city_id'])) $tour->city_id = $validated['city_id'];
+            if (isset($validated['date'])) $tour->scheduled_date = $validated['date'];
+            if (isset($validated['places_min'])) $tour->min_people = $validated['places_min'];
+            if (isset($validated['places_max'])) $tour->max_people = $validated['places_max'];
+            if (array_key_exists('description', $validated)) $tour->description = $validated['description'];
+            if (array_key_exists('itinerary', $validated)) $tour->itinerary = $validated['itinerary'];
+            if (isset($validated['active'])) $tour->active = $validated['active'];
 
-            // Préparer les données à update
-            $updateData = [];
-            if (isset($validated['nom'])) $updateData['title'] = $validated['nom'];
-            if (isset($validated['date'])) $updateData['scheduled_date'] = $validated['date'];
-            if (isset($validated['places_min'])) $updateData['min_people'] = $validated['places_min'];
-            if (isset($validated['places_max'])) $updateData['max_people'] = $validated['places_max'];
-            if (isset($validated['country_id'])) $updateData['country_id'] = $validated['country_id'];
-            if (isset($validated['city_id'])) $updateData['city_id'] = $validated['city_id'];
-            if (isset($validated['description'])) $updateData['description'] = $validated['description'];
-            if (isset($validated['image'])) $updateData['image'] = $validated['image'];
-            
+            $tour->save();
 
-            $tour->update($updateData);
+            // 4. Mise à jour des Prix
+            $price = $tour->prices()->firstOrNew([]);
 
-            // Mise à jour ou création du price
-            if (isset($validated['price'])) {
-                $tour->prices()->updateOrCreate(
-                    ['priceable_id' => $tour->id, 'priceable_type' => CityTour::class],
-                    [
-                        'price' => $validated['price'],
-                        'currency' => $validated['currency'] ?? 'CFA',
-                        'min_people' => $validated['places_min'] ?? $tour->min_people,
-                        'max_people' => $validated['places_max'] ?? $tour->max_people,
-                        'programme' => $validated['programme'] ?? $tour->programme,
-                    ]
-                );
+            if (isset($validated['currency'])) $price->currency = $validated['currency'];
+            if (isset($validated['places_min'])) $price->min_people = $validated['places_min'];
+            if (isset($validated['places_max'])) $price->max_people = $validated['places_max'];
+            if (array_key_exists('programme', $validated)) $price->programme = $validated['programme'];
+
+            if (array_key_exists('price_individual', $validated)) {
+                $price->price_individual = ($validated['price_individual'] !== '' && $validated['price_individual'] !== null) 
+                    ? $validated['price_individual'] : null;
             }
+
+            if (array_key_exists('price_group', $validated)) {
+                $price->price_group = ($validated['price_group'] !== '' && $validated['price_group'] !== null) 
+                    ? $validated['price_group'] : null;
+            }
+
+            $price->price = $price->price_group ?? $price->price_individual ?? $price->price ?? 0;
+
+            $price->save();
 
             DB::commit();
 
@@ -268,17 +236,11 @@ public function store(Request $request)
 
         } catch (ValidationException $e) {
             DB::rollBack();
-            return response()->json([
-                'message' => 'Validation échouée',
-                'errors' => $e->errors()
-            ], 422);
-
+            return response()->json(['message' => 'Erreur de validation', 'errors' => $e->errors()], 422);
         } catch (Exception $e) {
             DB::rollBack();
-            return response()->json([
-                'message' => 'Une erreur est survenue lors de la mise à jour',
-                'error' => $e->getMessage()
-            ], 500);
+            \Log::error('Erreur Update CityTour: ' . $e->getMessage());
+            return response()->json(['message' => 'Erreur serveur lors de la mise à jour.', 'error' => $e->getMessage()], 500);
         }
     }
 
@@ -289,17 +251,23 @@ public function store(Request $request)
     {
         try {
             $tour = CityTour::findOrFail($id);
+            
+            // Suppression manuelle du fichier
+            if ($tour->image) {
+                $filePath = storage_path("app/public/{$tour->image}");
+                if (file_exists($filePath)) {
+                    @unlink($filePath);
+                }
+            }
+
             $tour->delete();
+            
             return response()->json(['message' => 'City Tour supprimé avec succès']);
+            
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
-            return response()->json([
-                'message' => 'City Tour non trouvé'
-            ], 404);
+            return response()->json(['message' => 'City Tour introuvable'], 404);
         } catch (Exception $e) {
-            return response()->json([
-                'message' => 'Erreur serveur',
-                'error' => $e->getMessage()
-            ], 500);
+            return response()->json(['message' => 'Erreur serveur', 'error' => $e->getMessage()], 500);
         }
     }
 }
