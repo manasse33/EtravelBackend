@@ -14,13 +14,17 @@ return [
 
     // 💡 Changement ici : Suppression de 'sanctum/csrf-cookie'. 
     // On ne cible que les routes API.
-    'paths' => ['api/*'],
+    'paths' => ['api/*', 'backend/public/api/*'],
 
     'allowed_methods' => ['*'],
 
-    // 💡 Nous gardons l'origine exacte de votre frontend. C'est correct.
-    'allowed_origins' => ['https://e-travelworldagency.com'],
-    // https://etravel-murex.vercel.app
+   
+    'allowed_origins' => [
+        'https://e-travelworldagency.com',
+        'https://www.e-travelworldagency.com',
+        
+    ],
+    
 
     'allowed_origins_patterns' => [],
 

@@ -5,6 +5,23 @@
 
     RewriteEngine On
 
+    <IfModule mod_headers.c>
+        SetEnvIfNoCase Origin "^(https://(www\.)?e-travelworldagency\.com)$" CORS_ORIGIN=$1
+        SetEnvIfNoCase Origin "^(https://etravel-murex\.vercel\.app)$" CORS_ORIGIN=$1
+
+        Header onsuccess unset Access-Control-Allow-Origin
+        Header always unset Access-Control-Allow-Origin
+        Header onsuccess unset Access-Control-Allow-Methods
+        Header always unset Access-Control-Allow-Methods
+        Header onsuccess unset Access-Control-Allow-Headers
+        Header always unset Access-Control-Allow-Headers
+
+        Header always set Access-Control-Allow-Origin "%{CORS_ORIGIN}e" env=CORS_ORIGIN
+        Header always set Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS" env=CORS_ORIGIN
+        Header always set Access-Control-Allow-Headers "Authorization, Content-Type, X-Requested-With, Accept, Origin" env=CORS_ORIGIN
+        Header always merge Vary Origin
+    </IfModule>
+
     # Handle Authorization Header
     RewriteCond %{HTTP:Authorization} .
     RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]

@@ -83,7 +83,7 @@ class OuikenacController extends Controller
                 foreach ($grids as $index => $grid) {
                     $validator = Validator::make($grid, [
                         'country_id' => 'nullable|exists:countries,id',
-                        'departure_country_id' => 'required|exists:countries,id',
+                        'departure_country_id' => 'nullable|exists:countries,id',
                         'departure_city_id' => 'required|exists:cities,id',
                         'arrival_country_id' => 'nullable|exists:countries,id',
                         'arrival_city_id' => 'nullable|exists:cities,id',
@@ -92,10 +92,14 @@ class OuikenacController extends Controller
                         'price_individual' => 'nullable', 
                         'price_group' => 'nullable',
                         'specific_inclusions' => 'nullable|string',
-                        'currency' => 'required|in:CFA,USD,EUR',
+                        'currency' => 'nullable|in:CFA,USD,EUR',
                         'programme' => 'nullable|string',
                     ]);
                     $validatedGrid = $validator->validate();
+                    $departureCountryId = $validatedGrid['departure_country_id']
+                        ?? ($grid['departureCountryId'] ?? null)
+                        ?? $package->country_id;
+                    $currency = $validatedGrid['currency'] ?? 'CFA';
 
                     // --- NETTOYAGE DES PRIX ---
                     $p_indiv = (isset($validatedGrid['price_individual']) && $validatedGrid['price_individual'] !== '') 
@@ -134,7 +138,7 @@ class OuikenacController extends Controller
 
                     $package->prices()->create([
                         'country_id' => $package->country_id, 
-                        'departure_country_id' => $validatedGrid['departure_country_id'],
+                        'departure_country_id' => $departureCountryId,
                         'arrival_country_id' => $validatedGrid['arrival_country_id'] ?? null,
                         'departure_city_id' => $validatedGrid['departure_city_id'],
                         'arrival_city_id'   => $validatedGrid['arrival_city_id'] ?? null,
@@ -144,7 +148,7 @@ class OuikenacController extends Controller
                         'price_individual' => $p_indiv,
                         'price_group' => $p_group,
                         'specific_inclusions' => $validatedGrid['specific_inclusions'] ?? null,
-                        'currency' => $validatedGrid['currency'],
+                        'currency' => $currency,
                         'programme' => $validatedGrid['programme'] ?? null,
                         'image' => $gridImagePath, 
                     ]);
@@ -258,7 +262,7 @@ class OuikenacController extends Controller
                 foreach ($grids as $index => $grid) {
                     $gridValidator = Validator::make($grid, [
                         'id' => 'nullable|integer|exists:package_prices,id',
-                        'departure_country_id' => 'required|exists:countries,id',
+                        'departure_country_id' => 'nullable|exists:countries,id',
                         'departure_city_id' => 'required|exists:cities,id',
                         'arrival_country_id' => 'nullable|exists:countries,id',
                         'arrival_city_id' => 'nullable|exists:cities,id',
@@ -268,9 +272,13 @@ class OuikenacController extends Controller
                         'price_group' => 'nullable',
                         'specific_inclusions' => 'nullable|string',
                         'programme' => 'nullable|string',
-                        'currency' => 'required|string|max:10',
+                        'currency' => 'nullable|in:CFA,USD,EUR',
                     ]);
                     $validatedGrid = $gridValidator->validate();
+                    $departureCountryId = $validatedGrid['departure_country_id']
+                        ?? ($grid['departureCountryId'] ?? null)
+                        ?? $package->country_id;
+                    $currency = $validatedGrid['currency'] ?? 'CFA';
 
                     // --- NETTOYAGE DES PRIX ---
                     $p_indiv = (isset($validatedGrid['price_individual']) && $validatedGrid['price_individual'] !== '') 
@@ -281,7 +289,7 @@ class OuikenacController extends Controller
 
                     $dataToSave = [
                         'country_id' => $package->country_id,
-                        'departure_country_id' => $validatedGrid['departure_country_id'],
+                        'departure_country_id' => $departureCountryId,
                         'departure_city_id' => $validatedGrid['departure_city_id'],
                         'arrival_country_id' => $validatedGrid['arrival_country_id'] ?? null,
                         'arrival_city_id' => $validatedGrid['arrival_city_id'] ?? null,
@@ -291,7 +299,7 @@ class OuikenacController extends Controller
                         'price_group' => $p_group,
                         'specific_inclusions' => $validatedGrid['specific_inclusions'] ?? null,
                         'programme' => $validatedGrid['programme'] ?? null,
-                        'currency' => $validatedGrid['currency'],
+                        'currency' => $currency,
                         'price' => $p_group ?? $p_indiv ?? 0,
                     ];
 
